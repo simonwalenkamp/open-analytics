@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Analytics</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f4ef; color: #201f1b; }
+    body { margin: 0; }
+    main { width: min(1180px, calc(100% - 32px)); margin: 40px auto; }
+    header { margin-bottom: 24px; }
+    h1 { font-size: clamp(2rem, 5vw, 4.5rem); line-height: .95; letter-spacing: -.06em; margin: 0; max-width: 850px; }
+    h2 { margin: 0 0 16px; font-size: 1rem; letter-spacing: .04em; text-transform: uppercase; }
+    .eyebrow { margin: 0 0 12px; color: #8a3f21; font-weight: 800; text-transform: uppercase; letter-spacing: .14em; }
+    .muted { color: #6f6b61; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .card, .panel { background: #fffaf0; border: 1px solid #dfd6c6; border-radius: 18px; box-shadow: 0 16px 36px rgb(71 48 18 / 8%); }
+    .card { padding: 18px; }
+    .label { color: #6f6b61; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
+    .value { display: block; margin-top: 8px; font-size: 2rem; font-weight: 850; letter-spacing: -.04em; }
+    .panel { padding: 22px; margin-top: 18px; overflow-x: auto; }
+    .score-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .score-grid > .metric-card:first-child { grid-column: 1 / -1; }
+    .metric-card { display: flex; flex-direction: column; gap: 14px; }
+    .metric-card p { margin: 0; line-height: 1.45; }
+    .metric-values { display: grid; gap: 8px; }
+    .metric-value { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: baseline; padding-top: 8px; border-top: 1px solid #e8dfcf; }
+    .metric-model { overflow-wrap: anywhere; }
+    .metric-number { font-weight: 850; font-variant-numeric: tabular-nums; }
+    .volume-table { margin-top: 14px; }
+    .alert { border-color: #d7836a; background: #fff3ed; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e8dfcf; text-align: right; white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 260px; }
+    th { color: #6f6b61; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+    tr:last-child td { border-bottom: 0; }
+    ul { margin: 0; padding-left: 20px; }
+    li + li { margin-top: 8px; }
+    code { color: #7b351c; }
+    @media (max-width: 640px) {
+      .grid, .score-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Open Analytics</p>
+    <h1>Local opencode usage report</h1>
+    <p class="muted">Generated {{generatedAt}}</p>
+  </header>
+
+  {{content}}
+</main>
+
+<template id="error-panel">
+  <section class="panel alert">
+    <h2>Report could not be generated</h2>
+    <p>{{message}}</p>
+  </section>
+</template>
+
+<template id="summary">
+  <section class="grid" aria-label="Storage summary">
+    {{cards}}
+  </section>
+</template>
+
+<template id="metric-card">
+  <article class="card">
+    <span class="label">{{label}}</span>
+    <strong class="value">{{value}}</strong>
+  </article>
+</template>
+
+<template id="read-errors">
+  <section class="panel">
+    <h2>Read Errors</h2>
+    <ul>
+      {{items}}
+    </ul>
+  </section>
+</template>
+
+<template id="read-error-item">
+  <li><code>{{path}}</code>: {{message}}</li>
+</template>
+
+<template id="read-error-more">
+  <li>... {{count}} more</li>
+</template>
+
+<template id="scorecard-empty">
+  <section class="panel">
+    <h2>Model Scorecard</h2>
+    <p class="muted">No model activity found.</p>
+  </section>
+</template>
+
+<template id="scorecard">
+  <section class="panel">
+    <h2>Model Scorecard</h2>
+    <div class="score-grid">
+      {{cards}}
+    </div>
+  </section>
+</template>
+
+<template id="scorecard-metric-card">
+  <article class="card metric-card">
+    <div>
+      <span class="label">{{label}}</span>
+      <p class="muted">{{description}}</p>
+    </div>
+    <div class="metric-values">
+      {{values}}
+    </div>
+  </article>
+</template>
+
+<template id="scorecard-metric-value">
+  <div class="metric-value">
+    <span class="metric-model">{{model}}</span>
+    <span class="metric-number">{{value}}</span>
+  </div>
+</template>
+
+<template id="scorecard-volume-card">
+  <article class="card metric-card">
+    <div>
+      <span class="label">Volume</span>
+      <p class="muted">Messages are model-attributed stored messages, sessions are distinct session ids, and tokens are summed reported output tokens.</p>
+    </div>
+    <table class="volume-table">
+      <thead>
+      <tr>
+        <th>Model</th>
+        <th>Sessions</th>
+        <th>Messages</th>
+        <th>Tokens</th>
+      </tr>
+      </thead>
+      <tbody>
+      {{rows}}
+      </tbody>
+    </table>
+  </article>
+</template>
+
+<template id="scorecard-volume-row">
+  <tr>
+    <td>{{model}}</td>
+    <td>{{sessions}}</td>
+    <td>{{messages}}</td>
+    <td>{{tokens}}</td>
+  </tr>
+</template>
+</body>
+</html>

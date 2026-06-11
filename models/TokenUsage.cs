@@ -1,1 +1,3 @@
-sealed record TokenUsage(long? Input, long? Output, long? Reasoning, TokenCache? Cache);
+namespace OpenAnalytics.models;
+
+internal sealed record TokenUsage(long? Input, long? Output);

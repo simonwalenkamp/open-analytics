@@ -1,16 +1,22 @@
 # Open Analytics
 
-Local-first analytics tooling for reading opencode usage data.
+Local analytics tooling for reading opencode usage data.
 
-This first version only reads and structures local opencode usage data. It does not upload, persist, score, or analyze raw prompts.
+## How to run
 
-## Run
+First, install dependencies:
+
+```bash
+asdf install
+```
+
+Then, run the app:
 
 ```bash
 dotnet run
 ```
 
-By default, the app reads:
+The app reads from:
 
 ```text
 ~/.local/share/opencode/opencode.db
