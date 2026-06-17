@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Analytics</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f4ef; color: #201f1b; }
+    body { margin: 0; }
+    main { width: min(1180px, calc(100% - 32px)); margin: 40px auto; }
+    header { margin-bottom: 24px; }
+    h1 { font-size: clamp(2rem, 5vw, 4.5rem); line-height: .95; letter-spacing: -.06em; margin: 0; max-width: 850px; }
+    h2 { margin: 0 0 16px; font-size: 1rem; letter-spacing: .04em; text-transform: uppercase; }
+    .eyebrow { margin: 0 0 12px; color: #8a3f21; font-weight: 800; text-transform: uppercase; letter-spacing: .14em; }
+    .muted { color: #6f6b61; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .card, .panel { background: #fffaf0; border: 1px solid #dfd6c6; border-radius: 18px; box-shadow: 0 16px 36px rgb(71 48 18 / 8%); }
+    .card { padding: 18px; }
+    .label { color: #6f6b61; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
+    .value { display: block; margin-top: 8px; font-size: 2rem; font-weight: 850; letter-spacing: -.04em; }
+    .panel { padding: 22px; margin-top: 18px; overflow-x: auto; }
+    .score-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .score-grid > .metric-card:first-child { grid-column: 1 / -1; }
+    .metric-card { display: flex; flex-direction: column; gap: 14px; }
+    .metric-card p { margin: 0; line-height: 1.45; }
+    .metric-values { display: grid; gap: 8px; }
+    .metric-value { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: baseline; padding-top: 8px; border-top: 1px solid #e8dfcf; }
+    .metric-model { overflow-wrap: anywhere; }
+    .metric-number { font-weight: 850; font-variant-numeric: tabular-nums; }
+    .volume-table { margin-top: 14px; }
+    .alert { border-color: #d7836a; background: #fff3ed; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e8dfcf; text-align: right; white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 260px; }
+    th { color: #6f6b61; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+    tr:last-child td { border-bottom: 0; }
+    ul { margin: 0; padding-left: 20px; }
+    li + li { margin-top: 8px; }
+    code { color: #7b351c; }
+    @media (max-width: 640px) {
+      .grid, .score-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Open Analytics</p>
+    <h1>Local opencode usage report</h1>
+    <p class="muted">Generated 2026-06-17 14:11:19</p>
+  </header>
+
+  <section class="grid" aria-label="Storage summary">
+    <article class="card">
+    <span class="label">Sessions</span>
+    <strong class="value">951</strong>
+  </article>
+<article class="card">
+    <span class="label">Avg session</span>
+    <strong class="value">29.2m</strong>
+  </article>
+<article class="card">
+    <span class="label">Messages</span>
+    <strong class="value">15543</strong>
+  </article>
+<article class="card">
+    <span class="label">Parts</span>
+    <strong class="value">69159</strong>
+  </article>
+<article class="card">
+    <span class="label">Read errors</span>
+    <strong class="value">0</strong>
+  </article>
+  </section>
+
+<section class="panel">
+    <h2>Model Scorecard</h2>
+    <div class="score-grid">
+      <article class="card metric-card">
+    <div>
+      <span class="label">Volume</span>
+      <p class="muted">Messages are model-attributed stored messages, sessions are distinct session ids, and tokens are summed reported output tokens.</p>
+    </div>
+    <table class="volume-table">
+      <thead>
+      <tr>
+        <th>Model</th>
+        <th>Sessions</th>
+        <th>Messages</th>
+        <th>Tokens</th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr>
+    <td>github-copilot/claude-opus-4.6</td>
+    <td>345</td>
+    <td>4443</td>
+    <td>1.9M</td>
+  </tr>
+<tr>
+    <td>github-copilot/gpt-5.4</td>
+    <td>197</td>
+    <td>3723</td>
+    <td>1.5M</td>
+  </tr>
+<tr>
+    <td>github-copilot/claude-opus-4.7</td>
+    <td>151</td>
+    <td>2758</td>
+    <td>1.3M</td>
+  </tr>
+<tr>
+    <td>github-copilot/gpt-5.5</td>
+    <td>149</td>
+    <td>2491</td>
+    <td>529.9k</td>
+  </tr>
+<tr>
+    <td>lego-anthropic/claude-opus-4-8</td>
+    <td>57</td>
+    <td>1216</td>
+    <td>491.5k</td>
+  </tr>
+<tr>
+    <td>lego-openai/gpt-5.5</td>
+    <td>52</td>
+    <td>906</td>
+    <td>189.6k</td>
+  </tr>
+<tr>
+    <td>github-copilot/claude-opus-4.8</td>
+    <td>1</td>
+    <td>2</td>
+    <td>-</td>
+  </tr>
+<tr>
+    <td>github-copilot/claude-sonnet-4.6</td>
+    <td>1</td>
+    <td>2</td>
+    <td>15</td>
+  </tr>
+<tr>
+    <td>lego-anthropic/claude-sonnet-4-6</td>
+    <td>1</td>
+    <td>2</td>
+    <td>12</td>
+  </tr>
+<tr>
+    <td>(unknown)</td>
+    <td>0</td>
+    <td>0</td>
+    <td>-</td>
+  </tr>
+      </tbody>
+    </table>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Avg. messages per session.</span>
+      <p class="muted">Messages divided by distinct sessions for the model.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">21.3</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">18.9</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">18.3</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">17.4</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">16.7</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">12.9</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.8</span>
+    <span class="metric-number">2.0</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-sonnet-4.6</span>
+    <span class="metric-number">2.0</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-sonnet-4-6</span>
+    <span class="metric-number">2.0</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Avg. tokens in per session.</span>
+      <p class="muted">Average reported input tokens per distinct session for the model.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">82.3k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">81.5k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">63.0k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">58.8k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">12.7k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">39</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-sonnet-4.6</span>
+    <span class="metric-number">3</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-sonnet-4-6</span>
+    <span class="metric-number">2</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Avg. tokens out per session.</span>
+      <p class="muted">Average reported output tokens per distinct session for the model.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">8.7k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">8.6k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">7.8k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">5.5k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">3.6k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">3.6k</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-sonnet-4.6</span>
+    <span class="metric-number">15</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-sonnet-4-6</span>
+    <span class="metric-number">12</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Avg. response time.</span>
+      <p class="muted">Average completion latency for non-aborted messages with both created and completed timestamps.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-sonnet-4-6</span>
+    <span class="metric-number">1.4s</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-sonnet-4.6</span>
+    <span class="metric-number">2.8s</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">8.3s</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">16.0s</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">16.6s</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">33.5s</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">55.1s</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">56.6s</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Avg. time per session.</span>
+      <p class="muted">Average session duration from first user message to last completed assistant output.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">github-copilot/claude-sonnet-4.6</span>
+    <span class="metric-number">2.9s</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">5.3m</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">12.9m</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">20.6m</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">21.9m</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">23.6m</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">1.0h</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Avg. amount of edits per session.</span>
+      <p class="muted">Average completed edit, write, or apply_patch tool calls per distinct session for the model.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">3.6</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">2.8</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">1.9</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">1.8</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">1.4</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">1.0</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.8</span>
+    <span class="metric-number">0.0</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-sonnet-4.6</span>
+    <span class="metric-number">0.0</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-sonnet-4-6</span>
+    <span class="metric-number">0.0</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Avg. amount of responses interrupted.</span>
+      <p class="muted">Percentage of assistant messages that were aborted, for the model.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">0.4%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">0.3%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">0.3%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">0.2%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">0.2%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">0.2%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.8</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-sonnet-4.6</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-sonnet-4-6</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Plan revised</span>
+      <p class="muted">Percentage of plan-mode coding sessions where the user responded after the plan and plan mode was used again before execution.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">100.0%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">53.3%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">42.9%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">33.3%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">26.0%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Plan mode usage</span>
+      <p class="muted">Percentage of top-level coding sessions that used plan mode (at least one message sent in plan mode).</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">78.2%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">62.5%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">37.8%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">15.8%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">7.9%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">6.8%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">(unknown)</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.8</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-sonnet-4.6</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+    </div>
+  </article>
+<article class="card metric-card">
+    <div>
+      <span class="label">Plan not executed</span>
+      <p class="muted">Percentage of plan-mode coding sessions where no completed edit followed.</p>
+    </div>
+    <div class="metric-values">
+      <div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.4</span>
+    <span class="metric-number">64.4%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.6</span>
+    <span class="metric-number">63.5%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/claude-opus-4.7</span>
+    <span class="metric-number">33.3%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">github-copilot/gpt-5.5</span>
+    <span class="metric-number">28.6%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-anthropic/claude-opus-4-8</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+<div class="metric-value">
+    <span class="metric-model">lego-openai/gpt-5.5</span>
+    <span class="metric-number">0.0%</span>
+  </div>
+    </div>
+  </article>
+    </div>
+  </section>
+</main>
+</body>
+</html>
