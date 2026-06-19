@@ -12,6 +12,15 @@ namespace OpenAnalytics.Readers;
 /// tool_use). We therefore key assistant messages by <c>message.id</c>, count
 /// tokens once, and collect tool_use blocks (deduped by their own id) across all
 /// lines of that turn.
+///
+/// Claude also records <c>type: "user"</c> lines for two distinct things: real
+/// human prompts (<c>message.content</c> is a string or contains a text block)
+/// and tool-result envelopes the harness sends back to the model
+/// (<c>message.content</c> is a list of <c>tool_result</c> blocks). Only the
+/// former become user <see cref="Message"/>s; the latter carry each edit's
+/// success/failure/denial (via <c>is_error</c>) which we correlate back to the
+/// originating <c>tool_use</c> so failed or denied edits are not counted as
+/// completed edits.
 /// </summary>
 internal sealed class ClaudeCodeReader : IHarnessReader
 {
@@ -37,7 +46,7 @@ internal sealed class ClaudeCodeReader : IHarnessReader
     {
         var sessions = new List<Session>();
 
-        foreach (var file in JsonlReader.EnumerateFiles(_root, "*.jsonl"))
+        foreach (var file in JsonlReader.EnumerateFiles(_root, "*.jsonl", "claude", errors))
         {
             var session = ReadSession(file, errors);
             if (session is not null)
@@ -58,11 +67,26 @@ internal sealed class ClaudeCodeReader : IHarnessReader
         var builders = new Dictionary<string, MessageBuilder>();
         var order = new List<string>();
         var aborted = new HashSet<string>();
+        // tool_use id -> whether its tool_result reported an error (failure or
+        // user denial). Edits are only credited as completed when a non-error
+        // result arrives.
+        var toolResults = new Dictionary<string, bool>();
         var planMode = false;
         var anonymous = 0;
+        DateTimeOffset? createdAt = null;
+        DateTimeOffset? updatedAt = null;
 
         JsonlReader.ForEachRecord(file, "claude", errors, record =>
         {
+            // Track the session's real time span across every timestamped record,
+            // not just the ones that become messages — tool_result envelopes carry
+            // no message but still bound when the session was active.
+            if (JsonHelpers.FromIso8601(TryGetString(record, "timestamp")) is { } timestamp)
+            {
+                createdAt = createdAt is null || timestamp < createdAt ? timestamp : createdAt;
+                updatedAt = updatedAt is null || timestamp > updatedAt ? timestamp : updatedAt;
+            }
+
             switch (TryGetString(record, "type"))
             {
                 case "permission-mode":
@@ -72,7 +96,7 @@ internal sealed class ClaudeCodeReader : IHarnessReader
                     HandleAssistant(record, sessionId, planMode, builders, order);
                     break;
                 case "user":
-                    HandleUser(record, sessionId, planMode, builders, order, aborted, ref anonymous);
+                    HandleUser(record, sessionId, planMode, builders, order, aborted, toolResults, ref anonymous);
                     break;
             }
         });
@@ -86,13 +110,13 @@ internal sealed class ClaudeCodeReader : IHarnessReader
         {
             Harness = HarnessName,
             Id = sessionId,
-            CreatedAt = builders.Values.Select(b => b.CreatedAt).Where(t => t is not null).Min(),
-            UpdatedAt = builders.Values.Select(b => b.CreatedAt).Where(t => t is not null).Max()
+            CreatedAt = createdAt,
+            UpdatedAt = updatedAt
         };
 
         foreach (var key in order)
         {
-            session.Messages.Add(builders[key].Build(aborted.Contains(key)));
+            session.Messages.Add(builders[key].Build(aborted.Contains(key), toolResults));
         }
 
         return session;
@@ -153,6 +177,7 @@ internal sealed class ClaudeCodeReader : IHarnessReader
         Dictionary<string, MessageBuilder> builders,
         List<string> order,
         HashSet<string> aborted,
+        Dictionary<string, bool> toolResults,
         ref int anonymous)
     {
         // A user turn that interrupted an assistant response names the aborted
@@ -160,6 +185,15 @@ internal sealed class ClaudeCodeReader : IHarnessReader
         if (TryGetString(record, "interruptedMessageId") is { } interruptedId)
         {
             aborted.Add(interruptedId);
+        }
+
+        // Claude reuses type:"user" for tool-result envelopes the harness feeds
+        // back to the model. Record each result's status (for edit correlation)
+        // but do not let it become a user message — only genuine human text does.
+        CollectToolResults(record, toolResults);
+        if (!HasUserText(record))
+        {
+            return;
         }
 
         var key = TryGetString(record, "uuid") ?? $"user-{anonymous++}";
@@ -177,6 +211,60 @@ internal sealed class ClaudeCodeReader : IHarnessReader
             CreatedAt = JsonHelpers.FromIso8601(TryGetString(record, "timestamp"))
         };
         order.Add(key);
+    }
+
+    /// <summary>
+    /// True when a user record carries actual human text. Claude stores prompts
+    /// either as a plain string <c>message.content</c> or as a content array that
+    /// includes a <c>text</c> block; tool-result envelopes contain only
+    /// <c>tool_result</c> blocks and return false.
+    /// </summary>
+    private static bool HasUserText(JsonElement record)
+    {
+        if (!record.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.Object
+            || !message.TryGetProperty("content", out var content))
+        {
+            return false;
+        }
+
+        return content.ValueKind switch
+        {
+            JsonValueKind.String => !string.IsNullOrWhiteSpace(content.GetString()),
+            JsonValueKind.Array => content.EnumerateArray().Any(block =>
+                block.ValueKind == JsonValueKind.Object && TryGetString(block, "type") == "text"),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Records the success/failure of each <c>tool_result</c> block (keyed by the
+    /// originating <c>tool_use</c> id) so completed-edit accounting can exclude
+    /// failed or user-denied edits, which Claude marks with <c>is_error: true</c>.
+    /// </summary>
+    private static void CollectToolResults(JsonElement record, Dictionary<string, bool> toolResults)
+    {
+        if (!record.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.Object
+            || !message.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var block in content.EnumerateArray())
+        {
+            if (block.ValueKind != JsonValueKind.Object
+                || TryGetString(block, "type") != "tool_result"
+                || TryGetString(block, "tool_use_id") is not { } toolId)
+            {
+                continue;
+            }
+
+            var isError = block.TryGetProperty("is_error", out var flag)
+                && flag.ValueKind == JsonValueKind.True;
+
+            // If any result line for this tool reports an error, treat the edit as
+            // not completed (results stream once per tool_use, but be defensive).
+            toolResults[toolId] = toolResults.GetValueOrDefault(toolId) || isError;
+        }
     }
 
     private static void CollectEditParts(JsonElement message, MessageBuilder builder)
@@ -250,7 +338,7 @@ internal sealed class ClaudeCodeReader : IHarnessReader
         /// <summary>Edit tool-use id → canonical tool name, deduped across streamed lines.</summary>
         public Dictionary<string, string> EditParts { get; } = [];
 
-        public Message Build(bool aborted)
+        public Message Build(bool aborted, IReadOnlyDictionary<string, bool> toolResults)
         {
             var message = new Message
             {
@@ -273,12 +361,23 @@ internal sealed class ClaudeCodeReader : IHarnessReader
                     Id = toolId,
                     MessageId = Id,
                     Tool = tool,
-                    ToolStatus = "completed",
+                    ToolStatus = EditStatus(toolId, toolResults),
                     StartedAt = CreatedAt
                 });
             }
 
             return message;
         }
+
+        /// <summary>
+        /// An edit only counts as "completed" once Claude returns a non-error
+        /// tool_result for it. A result flagged <c>is_error</c> (failure or user
+        /// denial) is "error"; a tool_use with no result yet (interrupted or
+        /// truncated turn) stays "pending". Only "completed" feeds the edit metrics.
+        /// </summary>
+        private static string EditStatus(string toolId, IReadOnlyDictionary<string, bool> toolResults) =>
+            toolResults.TryGetValue(toolId, out var isError)
+                ? isError ? "error" : "completed"
+                : "pending";
     }
 }

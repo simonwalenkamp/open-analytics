@@ -29,7 +29,7 @@ foreach (var reader in readers.Where(reader => reader.IsAvailable()))
 
 if (sessions.Count == 0)
 {
-    OpenReport(HtmlReporter.WriteNoData());
+    OpenReport(HtmlReporter.WriteNoData(errors));
     return 1;
 }
 

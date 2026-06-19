@@ -71,24 +71,68 @@ internal static class JsonlReader
         }
     }
 
-    public static IEnumerable<string> EnumerateFiles(string root, string searchPattern)
+    private static readonly EnumerationOptions RecursiveEnumeration = new()
+    {
+        RecurseSubdirectories = true,
+        // Skip files/directories we can't open instead of throwing partway
+        // through enumeration.
+        IgnoreInaccessible = true
+    };
+
+    /// <summary>
+    /// Lazily enumerates files matching <paramref name="searchPattern"/> under
+    /// <paramref name="root"/>. Enumeration is inherently lazy, so IO/permission
+    /// failures surface while the caller iterates rather than up front;
+    /// <see cref="EnumerationOptions.IgnoreInaccessible"/> skips the common cases,
+    /// and any remaining failure is recorded as a <see cref="ReadError"/> and ends
+    /// enumeration cleanly instead of aborting the whole reader.
+    /// </summary>
+    public static IEnumerable<string> EnumerateFiles(
+        string root,
+        string searchPattern,
+        string sourcePrefix,
+        List<ReadError> errors)
     {
         if (!Directory.Exists(root))
         {
-            return [];
+            yield break;
         }
 
+        IEnumerator<string> enumerator;
         try
         {
-            return Directory.EnumerateFiles(root, searchPattern, SearchOption.AllDirectories);
+            enumerator = Directory.EnumerateFiles(root, searchPattern, RecursiveEnumeration).GetEnumerator();
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return [];
+            errors.Add(new ReadError($"{sourcePrefix}:{root}", ex.Message));
+            yield break;
         }
-        catch (UnauthorizedAccessException)
+
+        using (enumerator)
         {
-            return [];
+            while (true)
+            {
+                string current;
+                try
+                {
+                    // MoveNext drives the lazy directory walk, so an unreadable
+                    // subtree throws here rather than at the call site.
+                    if (!enumerator.MoveNext())
+                    {
+                        yield break;
+                    }
+
+                    current = enumerator.Current;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    errors.Add(new ReadError($"{sourcePrefix}:{root}", ex.Message));
+                    yield break;
+                }
+
+                yield return current;
+            }
         }
     }
 }

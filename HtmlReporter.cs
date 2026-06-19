@@ -18,11 +18,12 @@ internal static class HtmlReporter
     private const string TemplateFileName = "ReportTemplate.html";
 
     public static string Write(AnalyticsData data) =>
-        WriteHtml(BuildReport(data, null));
+        WriteHtml(BuildReport(data, null, data.Errors));
 
-    public static string WriteNoData() =>
+    public static string WriteNoData(IReadOnlyList<ReadError> errors) =>
         WriteHtml(BuildReport(null,
-            "No coding agent usage data was found. Looked for opencode, Claude Code, Codex, and GitHub Copilot CLI data in their default locations."));
+            "No coding agent usage data was found. Looked for opencode, Claude Code, Codex, and GitHub Copilot CLI data in their default locations.",
+            errors));
 
     private static string WriteHtml(string html)
     {
@@ -31,14 +32,18 @@ internal static class HtmlReporter
         return path;
     }
 
-    private static string BuildReport(AnalyticsData? data, string? errorMessage)
+    private static string BuildReport(AnalyticsData? data, string? errorMessage, IReadOnlyList<ReadError> errors)
     {
         var template = LoadTemplate();
         var content = errorMessage is not null
-            ? RenderTemplate(ExtractTemplate(template, "error-panel"), new Dictionary<string, string>
-            {
-                ["message"] = Escape(errorMessage)
-            })
+            ? string.Join(Environment.NewLine,
+                RenderTemplate(ExtractTemplate(template, "error-panel"), new Dictionary<string, string>
+                {
+                    ["message"] = Escape(errorMessage)
+                }),
+                // Even with no sessions, surface why each reader came up empty so a
+                // user with only a broken store sees the cause, not just "no data".
+                RenderReadErrors(template, errors))
             : BuildContent(template, data!);
 
         return RenderTemplate(RemoveTemplateDefinitions(template), new Dictionary<string, string>
@@ -50,7 +55,7 @@ internal static class HtmlReporter
 
     private static string BuildContent(string template, AnalyticsData data) =>
         string.Join(Environment.NewLine, RenderSummary(template, data), RenderHarnessBreakdown(template, data),
-            RenderReadErrors(template, data), RenderScorecard(template, data));
+            RenderReadErrors(template, data.Errors), RenderScorecard(template, data));
 
     private static string RenderSummary(string template, AnalyticsData data)
     {
@@ -108,14 +113,14 @@ internal static class HtmlReporter
         return durations.Count == 0 ? "-" : FormatDuration(durations.Average());
     }
 
-    private static string RenderReadErrors(string template, AnalyticsData data)
+    private static string RenderReadErrors(string template, IReadOnlyList<ReadError> errors)
     {
-        if (data.Errors.Count <= 0)
+        if (errors.Count <= 0)
         {
             return string.Empty;
         }
 
-        var items = data.Errors
+        var items = errors
             .Take(MaxReadErrors)
             .Select(error => RenderTemplate(ExtractTemplate(template, "read-error-item"), new Dictionary<string, string>
             {
@@ -124,11 +129,11 @@ internal static class HtmlReporter
             }))
             .ToList();
 
-        if (data.Errors.Count > MaxReadErrors)
+        if (errors.Count > MaxReadErrors)
         {
             items.Add(RenderTemplate(ExtractTemplate(template, "read-error-more"), new Dictionary<string, string>
             {
-                ["count"] = (data.Errors.Count - MaxReadErrors).ToString()
+                ["count"] = (errors.Count - MaxReadErrors).ToString()
             }));
         }
 
