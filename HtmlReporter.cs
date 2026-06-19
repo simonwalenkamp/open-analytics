@@ -53,9 +53,17 @@ internal static class HtmlReporter
         });
     }
 
-    private static string BuildContent(string template, AnalyticsData data) =>
-        string.Join(Environment.NewLine, RenderSummary(template, data), RenderHarnessBreakdown(template, data),
-            RenderReadErrors(template, data.Errors), RenderScorecard(template, data));
+    private static string BuildContent(string template, AnalyticsData data)
+    {
+        var orderedScores = OrderedScores(BuildModelScores(data)).ToList();
+
+        return string.Join(Environment.NewLine,
+            RenderSummary(template, data),
+            RenderHarnessBreakdown(template, data),
+            RenderReadErrors(template, data.Errors),
+            RenderModelFilter(template, orderedScores),
+            RenderScorecard(template, orderedScores));
+    }
 
     private static string RenderSummary(string template, AnalyticsData data)
     {
@@ -143,16 +151,15 @@ internal static class HtmlReporter
         });
     }
 
-    private static string RenderScorecard(string template, AnalyticsData data)
+    private static string RenderScorecard(
+        string template,
+        IReadOnlyList<KeyValuePair<string, ModelScore>> orderedScores)
     {
-        var scores = BuildModelScores(data);
-
-        if (scores.Count == 0)
+        if (orderedScores.Count == 0)
         {
             return ExtractTemplate(template, "scorecard-empty");
         }
 
-        var orderedScores = OrderedScores(scores).ToList();
         var cards = new[] { RenderScorecardVolume(template, orderedScores) }
             .Concat(ScoreMetrics()
             .Select(metric => RenderScorecardMetric(template, metric, orderedScores))
@@ -161,6 +168,33 @@ internal static class HtmlReporter
         return RenderTemplate(ExtractTemplate(template, "scorecard"), new Dictionary<string, string>
         {
             ["cards"] = string.Join(Environment.NewLine, cards)
+        });
+    }
+
+    /// <summary>
+    /// Renders the interactive filter panel: one checkbox per harness/model combination
+    /// (the scorecard keys, e.g. <c>opencode/github-copilot/claude-opus-4.6</c>). Toggling
+    /// a box shows or hides every scorecard row and metric value tagged with that
+    /// <c>data-model</c> via the inline filter script in the template.
+    /// </summary>
+    private static string RenderModelFilter(
+        string template,
+        IReadOnlyList<KeyValuePair<string, ModelScore>> orderedScores)
+    {
+        if (orderedScores.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var options = orderedScores.Select(score =>
+            RenderTemplate(ExtractTemplate(template, "model-filter-option"), new Dictionary<string, string>
+            {
+                ["model"] = Escape(score.Key)
+            }));
+
+        return RenderTemplate(ExtractTemplate(template, "model-filter"), new Dictionary<string, string>
+        {
+            ["options"] = string.Join(Environment.NewLine, options)
         });
     }
 
