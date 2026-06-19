@@ -28,6 +28,13 @@
     .metric-model { overflow-wrap: anywhere; }
     .metric-number { font-weight: 850; font-variant-numeric: tabular-nums; }
     .volume-table { margin-top: 14px; }
+    .filter-panel h2 { margin-bottom: 8px; }
+    .filter-actions { display: flex; gap: 8px; margin: 14px 0; }
+    .filter-actions button { font: inherit; cursor: pointer; border: 1px solid #dfd6c6; background: #fffaf0; color: #201f1b; border-radius: 999px; padding: 6px 14px; }
+    .filter-actions button:hover { border-color: #d7836a; }
+    .filter-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px 16px; }
+    .filter-option { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+    .filter-option input { width: 16px; height: 16px; accent-color: #8a3f21; }
     .alert { border-color: #d7836a; background: #fff3ed; }
     table { width: 100%; border-collapse: collapse; font-size: .9rem; }
     th, td { padding: 10px 12px; border-bottom: 1px solid #e8dfcf; text-align: right; white-space: nowrap; }
@@ -145,7 +152,7 @@
 </template>
 
 <template id="scorecard-metric-value">
-  <div class="metric-value">
+  <div class="metric-value" data-model="{{model}}">
     <span class="metric-model">{{model}}</span>
     <span class="metric-number">{{value}}</span>
   </div>
@@ -174,12 +181,73 @@
 </template>
 
 <template id="scorecard-volume-row">
-  <tr>
+  <tr data-model="{{model}}">
     <td>{{model}}</td>
     <td>{{sessions}}</td>
     <td>{{messages}}</td>
     <td>{{tokens}}</td>
   </tr>
 </template>
+
+<template id="model-filter">
+  <section class="panel filter-panel" aria-label="Harness and model filter">
+    <h2>Harness / model filter</h2>
+    <p class="muted">Choose which harness/model combinations to show in the scorecard below.</p>
+    <div class="filter-actions">
+      <button type="button" data-filter-all>Select all</button>
+      <button type="button" data-filter-none>Select none</button>
+    </div>
+    <div class="filter-options">
+      {{options}}
+    </div>
+  </section>
+</template>
+
+<template id="model-filter-option">
+  <label class="filter-option">
+    <input type="checkbox" data-filter-model="{{model}}" checked>
+    <span>{{model}}</span>
+  </label>
+</template>
+
+<script id="model-filter-script">
+  (function () {
+    var checkboxes = Array.prototype.slice.call(document.querySelectorAll('[data-filter-model]'));
+    if (checkboxes.length === 0) {
+      return;
+    }
+
+    function selected() {
+      var set = {};
+      checkboxes.forEach(function (box) {
+        if (box.checked) {
+          set[box.getAttribute('data-filter-model')] = true;
+        }
+      });
+      return set;
+    }
+
+    function apply() {
+      var show = selected();
+      Array.prototype.slice.call(document.querySelectorAll('[data-model]')).forEach(function (node) {
+        node.style.display = show[node.getAttribute('data-model')] ? '' : 'none';
+      });
+    }
+
+    function setAll(checked) {
+      checkboxes.forEach(function (box) { box.checked = checked; });
+      apply();
+    }
+
+    checkboxes.forEach(function (box) { box.addEventListener('change', apply); });
+
+    var all = document.querySelector('[data-filter-all]');
+    var none = document.querySelector('[data-filter-none]');
+    if (all) { all.addEventListener('click', function () { setAll(true); }); }
+    if (none) { none.addEventListener('click', function () { setAll(false); }); }
+
+    apply();
+  })();
+</script>
 </body>
 </html>
