@@ -13,14 +13,14 @@ internal sealed class PartFile
     public PartTimeFile? Time { get; set; }
     public JsonElement? State { get; set; }
 
-    public OpencodePart? ToPart()
+    public Part? ToPart()
     {
         if (Id is null || MessageId is null)
         {
             return null;
         }
 
-        return new OpencodePart
+        return new Part
         {
             Id = Id,
             MessageId = MessageId,

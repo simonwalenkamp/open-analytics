@@ -20,14 +20,14 @@ internal sealed class MessageFile
     public MessageModelFile? Model { get; set; }
     public TokenUsage? Tokens { get; set; }
 
-    public OpencodeMessage? ToMessage()
+    public Message? ToMessage()
     {
         if (Id is null || SessionId is null)
         {
             return null;
         }
 
-        return new OpencodeMessage
+        return new Message
         {
             Id = Id,
             SessionId = SessionId,

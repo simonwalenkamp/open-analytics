@@ -1,6 +1,6 @@
 namespace OpenAnalytics.models;
 
-internal sealed class OpencodeMessage
+internal sealed class Message
 {
     private const string MessageAbortedErrorName = "MessageAbortedError";
 
@@ -14,14 +14,14 @@ internal sealed class OpencodeMessage
 
     /// <summary>
     /// True when the user interrupted/aborted this assistant response. opencode
-    /// records interruptions as an error with name "MessageAbortedError"; this is
-    /// the only reliable interruption signal in the database (the finish reason is
-    /// usually empty for aborts but also empty for many non-aborted messages).
+    /// records interruptions as an error with name "MessageAbortedError"; the
+    /// other readers normalize their own interruption signal to the same name so
+    /// the metrics engine has a single notion of "aborted".
     /// </summary>
     public bool WasAborted => ErrorName == MessageAbortedErrorName;
 
     public DateTimeOffset? CreatedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
     public TokenUsage? Tokens { get; init; }
-    public List<OpencodePart> Parts { get; } = [];
+    public List<Part> Parts { get; } = [];
 }

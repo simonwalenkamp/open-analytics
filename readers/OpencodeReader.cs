@@ -3,10 +3,12 @@ using Microsoft.Data.Sqlite;
 using OpenAnalytics.Helpers;
 using OpenAnalytics.models;
 
-namespace OpenAnalytics;
+namespace OpenAnalytics.Readers;
 
-internal sealed class OpencodeStorageReader(string storagePath)
+internal sealed class OpencodeReader : IHarnessReader
 {
+    private const string HarnessName = "opencode";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -14,11 +16,23 @@ internal sealed class OpencodeStorageReader(string storagePath)
         AllowTrailingCommas = true
     };
 
-    public OpencodeStorage Read()
-    {
-        var errors = new List<ReadError>();
+    private readonly string _storagePath;
 
-        using var connection = new SqliteConnection(BuildReadOnlyConnectionString(storagePath));
+    public OpencodeReader(string? storagePath = null) =>
+        _storagePath = storagePath ?? DefaultStoragePath();
+
+    public string Harness => HarnessName;
+
+    public static string DefaultStoragePath() =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".local", "share", "opencode", "opencode.db");
+
+    public bool IsAvailable() => File.Exists(_storagePath);
+
+    public IReadOnlyList<Session> Read(List<ReadError> errors)
+    {
+        using var connection = new SqliteConnection(BuildReadOnlyConnectionString(_storagePath));
         connection.Open();
 
         var sessions = ReadSessions(connection);
@@ -27,10 +41,10 @@ internal sealed class OpencodeStorageReader(string storagePath)
 
         AttachMessagesAndParts(sessions, messagesBySession, partsByMessage);
 
-        return new OpencodeStorage(SortSessions(sessions), errors);
+        return SortSessions(sessions);
     }
 
-    private static IReadOnlyDictionary<string, List<OpencodeMessage>> ReadMessagesBySession(
+    private static IReadOnlyDictionary<string, List<Message>> ReadMessagesBySession(
         SqliteConnection connection,
         List<ReadError> errors) =>
         ReadMessages(connection, errors)
@@ -39,7 +53,7 @@ internal sealed class OpencodeStorageReader(string storagePath)
                 group => group.Key,
                 group => group.OrderBy(message => message.CreatedAt).ThenBy(message => message.Id).ToList());
 
-    private static IReadOnlyDictionary<string, List<OpencodePart>> ReadPartsByMessage(
+    private static IReadOnlyDictionary<string, List<Part>> ReadPartsByMessage(
         SqliteConnection connection,
         List<ReadError> errors) =>
         ReadParts(connection, errors)
@@ -48,7 +62,7 @@ internal sealed class OpencodeStorageReader(string storagePath)
                 group => group.Key,
                 group => group.OrderBy(part => part.StartedAt).ThenBy(part => part.Id).ToList());
 
-    private static List<OpencodeSession> SortSessions(IEnumerable<OpencodeSession> sessions) =>
+    private static List<Session> SortSessions(IEnumerable<Session> sessions) =>
         sessions
             .OrderByDescending(session => session.UpdatedAt ?? session.CreatedAt)
             .ThenBy(session => session.Id)
@@ -62,9 +76,9 @@ internal sealed class OpencodeStorageReader(string storagePath)
         }.ToString();
 
     private static void AttachMessagesAndParts(
-        IEnumerable<OpencodeSession> sessions,
-        IReadOnlyDictionary<string, List<OpencodeMessage>> messagesBySession,
-        IReadOnlyDictionary<string, List<OpencodePart>> partsByMessage)
+        IEnumerable<Session> sessions,
+        IReadOnlyDictionary<string, List<Message>> messagesBySession,
+        IReadOnlyDictionary<string, List<Part>> partsByMessage)
     {
         foreach (var session in sessions)
         {
@@ -85,11 +99,11 @@ internal sealed class OpencodeStorageReader(string storagePath)
         }
     }
 
-    private static List<OpencodeSession> ReadSessions(SqliteConnection connection)
+    private static List<Session> ReadSessions(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-                              SELECT 
+                              SELECT
                                   id,
                                   summary_additions,
                                   summary_deletions,
@@ -101,7 +115,7 @@ internal sealed class OpencodeStorageReader(string storagePath)
                               FROM session
                               """;
 
-        var result = new List<OpencodeSession>();
+        var result = new List<Session>();
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
@@ -111,13 +125,14 @@ internal sealed class OpencodeStorageReader(string storagePath)
         return result;
     }
 
-    private static OpencodeSession ReadSession(SqliteDataReader reader)
+    private static Session ReadSession(SqliteDataReader reader)
     {
         var id = reader.GetString(0);
 
         var revert = SqliteHelper.GetString(reader, 7);
-        return new OpencodeSession
+        return new Session
         {
+            Harness = HarnessName,
             Id = id,
             Summary = new SessionSummary(SqliteHelper.GetInt(reader, 1), SqliteHelper.GetInt(reader, 2)),
             CreatedAt = JsonHelpers.FromUnixMilliseconds(SqliteHelper.GetLong(reader, 3)),
@@ -131,7 +146,7 @@ internal sealed class OpencodeStorageReader(string storagePath)
     private static bool HasRevert(string? revert) =>
         !string.IsNullOrWhiteSpace(revert) && revert != "{}" && revert != "null";
 
-    private static List<OpencodeMessage> ReadMessages(SqliteConnection connection, List<ReadError> errors)
+    private static List<Message> ReadMessages(SqliteConnection connection, List<ReadError> errors)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -139,7 +154,7 @@ internal sealed class OpencodeStorageReader(string storagePath)
                               FROM message
                               """;
 
-        var result = new List<OpencodeMessage>();
+        var result = new List<Message>();
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
@@ -167,7 +182,7 @@ internal sealed class OpencodeStorageReader(string storagePath)
         return result;
     }
 
-    private static List<OpencodePart> ReadParts(SqliteConnection connection, List<ReadError> errors)
+    private static List<Part> ReadParts(SqliteConnection connection, List<ReadError> errors)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -175,7 +190,7 @@ internal sealed class OpencodeStorageReader(string storagePath)
                               FROM part
                               """;
 
-        var result = new List<OpencodePart>();
+        var result = new List<Part>();
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
