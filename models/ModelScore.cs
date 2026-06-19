@@ -2,6 +2,7 @@ namespace OpenAnalytics.models;
 
 internal sealed class ModelScore
 {
+    public string Harness { get; set; } = string.Empty;
     public int Messages { get; set; }
     public HashSet<string> Sessions { get; } = [];
 

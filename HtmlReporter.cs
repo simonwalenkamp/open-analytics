@@ -17,11 +17,13 @@ internal static class HtmlReporter
     private const int MaxReadErrors = 10;
     private const string TemplateFileName = "ReportTemplate.html";
 
-    public static string Write(OpencodeStorage data) =>
-        WriteHtml(BuildReport(data, null));
+    public static string Write(AnalyticsData data) =>
+        WriteHtml(BuildReport(data, null, data.Errors));
 
-    public static string WriteMissingDatabase(string storagePath) =>
-        WriteHtml(BuildReport(null, $"Database path does not exist: {storagePath}"));
+    public static string WriteNoData(IReadOnlyList<ReadError> errors) =>
+        WriteHtml(BuildReport(null,
+            "No coding agent usage data was found. Looked for opencode, Claude Code, Codex, and GitHub Copilot CLI data in their default locations.",
+            errors));
 
     private static string WriteHtml(string html)
     {
@@ -30,14 +32,18 @@ internal static class HtmlReporter
         return path;
     }
 
-    private static string BuildReport(OpencodeStorage? data, string? errorMessage)
+    private static string BuildReport(AnalyticsData? data, string? errorMessage, IReadOnlyList<ReadError> errors)
     {
         var template = LoadTemplate();
         var content = errorMessage is not null
-            ? RenderTemplate(ExtractTemplate(template, "error-panel"), new Dictionary<string, string>
-            {
-                ["message"] = Escape(errorMessage)
-            })
+            ? string.Join(Environment.NewLine,
+                RenderTemplate(ExtractTemplate(template, "error-panel"), new Dictionary<string, string>
+                {
+                    ["message"] = Escape(errorMessage)
+                }),
+                // Even with no sessions, surface why each reader came up empty so a
+                // user with only a broken store sees the cause, not just "no data".
+                RenderReadErrors(template, errors))
             : BuildContent(template, data!);
 
         return RenderTemplate(RemoveTemplateDefinitions(template), new Dictionary<string, string>
@@ -47,11 +53,11 @@ internal static class HtmlReporter
         });
     }
 
-    private static string BuildContent(string template, OpencodeStorage data) =>
-        string.Join(Environment.NewLine, RenderSummary(template, data), RenderReadErrors(template, data),
-            RenderScorecard(template, data));
+    private static string BuildContent(string template, AnalyticsData data) =>
+        string.Join(Environment.NewLine, RenderSummary(template, data), RenderHarnessBreakdown(template, data),
+            RenderReadErrors(template, data.Errors), RenderScorecard(template, data));
 
-    private static string RenderSummary(string template, OpencodeStorage data)
+    private static string RenderSummary(string template, AnalyticsData data)
     {
         var cards = new[]
         {
@@ -75,20 +81,46 @@ internal static class HtmlReporter
             ["value"] = Escape(value)
         });
 
-    private static string AverageSessionDuration(IEnumerable<OpencodeSession> sessions)
+    private static string RenderHarnessBreakdown(string template, AnalyticsData data)
+    {
+        var rows = data.Sessions
+            .GroupBy(session => session.Harness)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key)
+            .Select(group => RenderTemplate(ExtractTemplate(template, "summary-by-harness-row"),
+                new Dictionary<string, string>
+                {
+                    ["harness"] = Escape(group.Key),
+                    ["sessions"] = group.Count().ToString(),
+                    ["messages"] = group.Sum(session => session.Messages.Count).ToString()
+                }))
+            .ToList();
+
+        if (rows.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return RenderTemplate(ExtractTemplate(template, "summary-by-harness"), new Dictionary<string, string>
+        {
+            ["rows"] = string.Join(Environment.NewLine, rows)
+        });
+    }
+
+    private static string AverageSessionDuration(IEnumerable<Session> sessions)
     {
         var durations = sessions.Select(SessionDurationSeconds).OfType<double>().ToList();
         return durations.Count == 0 ? "-" : FormatDuration(durations.Average());
     }
 
-    private static string RenderReadErrors(string template, OpencodeStorage data)
+    private static string RenderReadErrors(string template, IReadOnlyList<ReadError> errors)
     {
-        if (data.Errors.Count <= 0)
+        if (errors.Count <= 0)
         {
             return string.Empty;
         }
 
-        var items = data.Errors
+        var items = errors
             .Take(MaxReadErrors)
             .Select(error => RenderTemplate(ExtractTemplate(template, "read-error-item"), new Dictionary<string, string>
             {
@@ -97,11 +129,11 @@ internal static class HtmlReporter
             }))
             .ToList();
 
-        if (data.Errors.Count > MaxReadErrors)
+        if (errors.Count > MaxReadErrors)
         {
             items.Add(RenderTemplate(ExtractTemplate(template, "read-error-more"), new Dictionary<string, string>
             {
-                ["count"] = (data.Errors.Count - MaxReadErrors).ToString()
+                ["count"] = (errors.Count - MaxReadErrors).ToString()
             }));
         }
 
@@ -111,7 +143,7 @@ internal static class HtmlReporter
         });
     }
 
-    private static string RenderScorecard(string template, OpencodeStorage data)
+    private static string RenderScorecard(string template, AnalyticsData data)
     {
         var scores = BuildModelScores(data);
 
@@ -169,7 +201,7 @@ internal static class HtmlReporter
         return template;
     }
 
-    private static Dictionary<string, ModelScore> BuildModelScores(OpencodeStorage data)
+    private static Dictionary<string, ModelScore> BuildModelScores(AnalyticsData data)
     {
         var scores = new Dictionary<string, ModelScore>();
 
@@ -177,7 +209,7 @@ internal static class HtmlReporter
         {
             foreach (var message in session.Messages)
             {
-                RecordMessageMetrics(scores, message);
+                RecordMessageMetrics(scores, session.Harness, message);
             }
         }
 
@@ -189,27 +221,27 @@ internal static class HtmlReporter
         return scores;
     }
 
-    private static void RecordMessageMetrics(Dictionary<string, ModelScore> scores, OpencodeMessage message)
+    private static void RecordMessageMetrics(Dictionary<string, ModelScore> scores, string harness, Message message)
     {
-        var modelKey = ModelKey(message);
+        var modelKey = ModelKey(harness, message);
 
         if (message.ModelId is not null)
         {
-            RecordModelVolume(GetScore(scores, modelKey), message);
+            RecordModelVolume(GetScore(scores, modelKey, harness), message);
         }
 
         if (message.Role == AssistantRole)
         {
-            RecordAssistantResponse(GetScore(scores, modelKey), message);
+            RecordAssistantResponse(GetScore(scores, modelKey, harness), message);
         }
 
         foreach (var part in message.Parts.Where(IsCompletedEditingTool))
         {
-            GetScore(scores, modelKey).Quality.Record(LeftErrorDiagnostic(part.State));
+            GetScore(scores, modelKey, harness).Quality.Record(LeftErrorDiagnostic(part.State));
         }
     }
 
-    private static void RecordModelVolume(ModelScore score, OpencodeMessage message)
+    private static void RecordModelVolume(ModelScore score, Message message)
     {
         score.Messages++;
         score.Sessions.Add(message.SessionId);
@@ -225,7 +257,7 @@ internal static class HtmlReporter
         score.OutputTokens += message.Tokens?.Output ?? 0;
     }
 
-    private static void RecordAssistantResponse(ModelScore score, OpencodeMessage message)
+    private static void RecordAssistantResponse(ModelScore score, Message message)
     {
         score.AssistantMessages++;
         if (message.WasAborted)
@@ -236,9 +268,9 @@ internal static class HtmlReporter
 
     private static void RecordSessionMetrics(
         Dictionary<string, ModelScore> scores,
-        OpencodeSession session)
+        Session session)
     {
-        var score = GetScore(scores, SessionModel(session));
+        var score = GetScore(scores, SessionKey(session), session.Harness);
         var durationSeconds = SessionDurationSeconds(session);
 
         if (durationSeconds is not null)
@@ -307,7 +339,7 @@ internal static class HtmlReporter
         }
     }
 
-    private static bool IsTopLevelCodingSession(OpencodeSession session) =>
+    private static bool IsTopLevelCodingSession(Session session) =>
         session.ParentId is null && session.Agent is not PlanAgent and not "ask" and not "explore";
 
     /// <summary>
@@ -315,7 +347,7 @@ internal static class HtmlReporter
     /// field (not as a separate child session). A coding session "used plan mode"
     /// when at least one of its messages was sent while in plan mode.
     /// </summary>
-    private static bool UsedPlanMode(OpencodeSession session) =>
+    private static bool UsedPlanMode(Session session) =>
         session.Messages.Any(message => message.Mode == PlanMode);
 
     private static IEnumerable<KeyValuePair<string, ModelScore>> OrderedScores(Dictionary<string, ModelScore> scores) =>
@@ -329,46 +361,87 @@ internal static class HtmlReporter
         yield return new ScoreMetric("Avg. messages per session.",
             "Messages divided by distinct sessions for the model.",
             score => score.Sessions.Count == 0 ? null : score.MessagesPerSession,
-            value => $"{value:F1}");
+            value => $"{value:F1}",
+            Capability: Capabilities.Messages);
         yield return new ScoreMetric("Avg. tokens in per session.",
             "Average reported input tokens per distinct session for the model.",
             score => score.Sessions.Count == 0 || score.InputTokens == 0 ? null : score.InputTokensPerSession,
-            value => FormatTokens((long)Math.Round(value)));
+            value => FormatTokens((long)Math.Round(value)),
+            Capability: Capabilities.Tokens);
         yield return new ScoreMetric("Avg. tokens out per session.",
             "Average reported output tokens per distinct session for the model.",
             score => score.Sessions.Count == 0 || score.OutputTokens == 0 ? null : score.OutputTokensPerSession,
-            value => FormatTokens((long)Math.Round(value)));
+            value => FormatTokens((long)Math.Round(value)),
+            Capability: Capabilities.Tokens);
         yield return new ScoreMetric("Avg. response time.",
             "Average completion latency for non-aborted messages with both created and completed timestamps.",
             score => score.AvgLatencySeconds,
             value => $"{value:F1}s",
-            SortDirection.Ascending);
+            SortDirection.Ascending,
+            Capabilities.Latency);
         yield return new ScoreMetric("Avg. time per session.",
             "Average session duration from first user message to last completed assistant output.",
             score => score.AvgSessionDurationSeconds,
             FormatDuration,
-            SortDirection.Ascending);
+            SortDirection.Ascending,
+            Capabilities.Duration);
         yield return new ScoreMetric("Avg. amount of edits per session.",
             "Average completed edit, write, or apply_patch tool calls per distinct session for the model.",
             score => score.Sessions.Count == 0 ? null : score.EditsPerSession,
-            value => $"{value:F1}");
+            value => $"{value:F1}",
+            Capability: Capabilities.Edits);
         yield return new ScoreMetric("Avg. amount of responses interrupted.",
             "Percentage of assistant messages that were aborted, for the model.",
             score => score.AssistantMessages == 0 ? null : (double)score.Interrupts / score.AssistantMessages * 100,
-            value => $"{value:F1}%");
+            value => $"{value:F1}%",
+            Capability: Capabilities.Interrupts);
         yield return new ScoreMetric("Plan revised",
             "Percentage of plan-mode coding sessions where the user responded after the plan and plan mode was used again before execution.",
             score => score.PlanModeRevisedPercentage,
-            value => $"{value:F1}%");
+            value => $"{value:F1}%",
+            Capability: Capabilities.Plan);
         yield return new ScoreMetric("Plan mode usage",
             "Percentage of top-level coding sessions that used plan mode (at least one message sent in plan mode).",
             score => score.PlanModeSessionPercentage,
-            value => $"{value:F1}%");
+            value => $"{value:F1}%",
+            Capability: Capabilities.Plan);
         yield return new ScoreMetric("Plan not executed",
             "Percentage of plan-mode coding sessions where no completed edit followed.",
             score => score.PlanModeNotDonePercentage,
-            value => $"{value:F1}%");
+            value => $"{value:F1}%",
+            Capability: Capabilities.Plan);
     }
+
+    /// <summary>
+    /// Capability ids identify what a metric needs from the underlying data. Not
+    /// every harness stores everything (e.g. Copilot persists only session-level
+    /// aggregates), so a metric is only shown as a real number for harnesses that
+    /// <see cref="Supports"/> its capability; the rest render as "n/a".
+    /// </summary>
+    private static class Capabilities
+    {
+        public const string Messages = "messages";
+        public const string Tokens = "tokens";
+        public const string Latency = "latency";
+        public const string Duration = "duration";
+        public const string Edits = "edits";
+        public const string Interrupts = "interrupts";
+        public const string Plan = "plan";
+    }
+
+    /// <summary>
+    /// Whether <paramref name="harness"/> physically records enough data to
+    /// compute the given <paramref name="capability"/>. Unknown harnesses are
+    /// assumed fully capable so a new reader is not silently blanked out.
+    /// </summary>
+    private static bool Supports(string harness, string capability) => harness switch
+    {
+        "opencode" => true,
+        "claude-code" => capability is not Capabilities.Latency,
+        "codex" => capability is not (Capabilities.Latency or Capabilities.Plan),
+        "copilot" => capability is Capabilities.Tokens or Capabilities.Duration or Capabilities.Interrupts,
+        _ => true
+    };
 
     private static string RenderScorecardVolume(
         string template,
@@ -392,26 +465,38 @@ internal static class HtmlReporter
     private static string RenderScorecardMetric(
         string template,
         ScoreMetric metric,
-        IEnumerable<KeyValuePair<string, ModelScore>> scores)
+        IReadOnlyList<KeyValuePair<string, ModelScore>> scores)
     {
-        var values = OrderByMetric(scores
+        // Harnesses that can compute this metric: sort by value as before,
+        // dropping entries with no data. Harnesses that physically cannot
+        // provide it are listed afterwards as "n/a" so the gap is explicit
+        // rather than an invisible omission.
+        var supported = OrderByMetric(scores
+                .Where(score => Supports(score.Value.Harness, metric.Capability))
                 .Select(score => new MetricScore(score.Key, metric.Value(score.Value)))
                 .Where(score => score.Value is not null),
                 metric.SortDirection)
-            .Select(score => RenderTemplate(ExtractTemplate(template, "scorecard-metric-value"),
-            new Dictionary<string, string>
-            {
-                ["model"] = Escape(score.Key),
-                ["value"] = Escape(metric.Format(score.Value!.Value))
-            }));
+            .Select(score => RenderMetricValue(template, score.Key, metric.Format(score.Value!.Value)));
+
+        var unsupported = scores
+            .Where(score => !Supports(score.Value.Harness, metric.Capability))
+            .OrderBy(score => score.Key)
+            .Select(score => RenderMetricValue(template, score.Key, "n/a"));
 
         return RenderTemplate(ExtractTemplate(template, "scorecard-metric-card"), new Dictionary<string, string>
         {
             ["label"] = Escape(metric.Label),
             ["description"] = Escape(metric.Description),
-            ["values"] = string.Join(Environment.NewLine, values)
+            ["values"] = string.Join(Environment.NewLine, supported.Concat(unsupported))
         });
     }
+
+    private static string RenderMetricValue(string template, string key, string value) =>
+        RenderTemplate(ExtractTemplate(template, "scorecard-metric-value"), new Dictionary<string, string>
+        {
+            ["model"] = Escape(key),
+            ["value"] = Escape(value)
+        });
 
     private static IOrderedEnumerable<MetricScore> OrderByMetric(
         IEnumerable<MetricScore> scores,
@@ -435,14 +520,15 @@ internal static class HtmlReporter
         string Description,
         Func<ModelScore, double?> Value,
         Func<double, string> Format,
-        SortDirection SortDirection = SortDirection.Descending);
+        SortDirection SortDirection = SortDirection.Descending,
+        string Capability = "");
 
-    private static ModelScore GetScore(Dictionary<string, ModelScore> scores, string model)
+    private static ModelScore GetScore(Dictionary<string, ModelScore> scores, string key, string harness)
     {
-        if (scores.TryGetValue(model, out var score)) return score;
+        if (scores.TryGetValue(key, out var score)) return score;
 
-        score = new ModelScore();
-        scores[model] = score;
+        score = new ModelScore { Harness = harness };
+        scores[key] = score;
 
         return score;
     }
@@ -459,23 +545,31 @@ internal static class HtmlReporter
     private static string Escape(string value) =>
         WebUtility.HtmlEncode(value);
 
-    private static string SessionModel(OpencodeSession session)
+    /// <summary>
+    /// The scorecard key a whole session's session-level metrics are attributed
+    /// to: the session's harness plus its dominant (most-used) model, so the
+    /// session counts land on the same <c>harness/provider/model</c> row as that
+    /// model's message-level metrics.
+    /// </summary>
+    private static string SessionKey(Session session)
     {
         var dominant = session.Messages
             .Where(m => m.ModelId is not null)
-            .GroupBy(ModelKey)
+            .GroupBy(m => ModelKey(session.Harness, m))
             .OrderByDescending(g => g.Count())
             .ThenBy(g => g.Key)
             .Select(g => g.Key)
             .FirstOrDefault();
 
-        return dominant ?? Unknown;
+        return dominant ?? $"{session.Harness}/{Unknown}";
     }
 
-    private static string ModelKey(OpencodeMessage message) =>
-        message.ModelId is null ? Unknown : $"{message.ProviderId ?? Unknown}/{message.ModelId}";
+    private static string ModelKey(string harness, Message message) =>
+        message.ModelId is null
+            ? $"{harness}/{Unknown}"
+            : $"{harness}/{message.ProviderId ?? Unknown}/{message.ModelId}";
 
-    private static double? LatencySeconds(OpencodeMessage message)
+    private static double? LatencySeconds(Message message)
     {
         if (message.WasAborted || message.CreatedAt is null || message.CompletedAt is null)
         {
@@ -486,7 +580,7 @@ internal static class HtmlReporter
         return seconds >= 0 ? seconds : null;
     }
 
-    private static double? SessionDurationSeconds(OpencodeSession session)
+    private static double? SessionDurationSeconds(Session session)
     {
         var firstUserMessage = session.Messages
             .Where(message => message.Role == UserRole && message.CreatedAt is not null)
@@ -527,7 +621,7 @@ internal static class HtmlReporter
     private static bool IsEditingTool(string? tool) =>
         tool is "edit" or "write" or "apply_patch";
 
-    private static bool IsCompletedEditingTool(OpencodePart part) =>
+    private static bool IsCompletedEditingTool(Part part) =>
         IsEditingTool(part.Tool) && part.ToolStatus == CompletedStatus;
 
     /// <summary>
@@ -538,12 +632,12 @@ internal static class HtmlReporter
     /// Defined as: at least two <c>todowrite</c> tool calls occur with a user message in
     /// between them, and that second task list happens before the session's first
     /// completed editing tool call. Walking events in chronological order
-    /// (messages by CreatedAt, parts by StartedAt — see OpencodeStorageReader) lets us
+    /// (messages by CreatedAt, parts by StartedAt — see OpencodeReader) lets us
     /// distinguish revision-during-discussion from the agent self-revising its todo
     /// list mid-execution. The user message requirement is a heuristic for "the user
     /// asked for changes" rather than the agent rewriting its own list unprompted.
     /// </summary>
-    private static bool TodoRevisedBeforeExecution(OpencodeSession session)
+    private static bool TodoRevisedBeforeExecution(Session session)
     {
         var sawPlan = false;
         var sawUserSincePlan = false;
@@ -585,7 +679,7 @@ internal static class HtmlReporter
         return false;
     }
 
-    private static bool PlanModeRevisedBeforeExecution(OpencodeSession session)
+    private static bool PlanModeRevisedBeforeExecution(Session session)
     {
         var events = session.Messages
             .SelectMany(message => PlanRevisionEvents(message))
@@ -626,7 +720,7 @@ internal static class HtmlReporter
         return false;
     }
 
-    private static IEnumerable<SessionEvent> PlanRevisionEvents(OpencodeMessage message)
+    private static IEnumerable<SessionEvent> PlanRevisionEvents(Message message)
     {
         if (message.Role == UserRole)
         {

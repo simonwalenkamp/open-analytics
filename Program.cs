@@ -1,19 +1,39 @@
 using System.Diagnostics;
 using OpenAnalytics;
+using OpenAnalytics.models;
+using OpenAnalytics.Readers;
 
-var homeFolder = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-var storagePath = Path.Combine(homeFolder, ".local", "share", "opencode", "opencode.db");
+IHarnessReader[] readers =
+[
+    new OpencodeReader(),
+    new ClaudeCodeReader(),
+    new CodexReader(),
+    new CopilotReader()
+];
 
-if (!File.Exists(storagePath))
+var errors = new List<ReadError>();
+var sessions = new List<Session>();
+
+foreach (var reader in readers.Where(reader => reader.IsAvailable()))
 {
-    OpenReport(HtmlReporter.WriteMissingDatabase(storagePath));
+    try
+    {
+        sessions.AddRange(reader.Read(errors));
+    }
+    catch (Exception exception)
+    {
+        // A single failing harness must not sink the whole report.
+        errors.Add(new ReadError(reader.Harness, exception.Message));
+    }
+}
+
+if (sessions.Count == 0)
+{
+    OpenReport(HtmlReporter.WriteNoData(errors));
     return 1;
 }
 
-var reader = new OpencodeStorageReader(storagePath);
-var data = reader.Read();
-
-OpenReport(HtmlReporter.Write(data));
+OpenReport(HtmlReporter.Write(new AnalyticsData(sessions, errors)));
 return 0;
 
 static void OpenReport(string path)

@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace OpenAnalytics.models;
 
-internal sealed class OpencodePart
+internal sealed class Part
 {
     public required string Id { get; init; }
     public required string MessageId { get; init; }

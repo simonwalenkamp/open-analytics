@@ -1,7 +1,8 @@
 namespace OpenAnalytics.models;
 
-internal sealed class OpencodeSession
+internal sealed class Session
 {
+    public required string Harness { get; init; }
     public required string Id { get; init; }
     public string? ParentId { get; init; }
     public string? Agent { get; init; }
@@ -9,5 +10,5 @@ internal sealed class OpencodeSession
     public DateTimeOffset? CreatedAt { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
     public SessionSummary? Summary { get; init; }
-    public List<OpencodeMessage> Messages { get; } = [];
+    public List<Message> Messages { get; } = [];
 }

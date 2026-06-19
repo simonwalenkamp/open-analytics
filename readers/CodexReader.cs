@@ -1,0 +1,343 @@
+using System.Text.Json;
+using OpenAnalytics.Helpers;
+using OpenAnalytics.models;
+
+namespace OpenAnalytics.Readers;
+
+/// <summary>
+/// Reads Codex rollout transcripts from <c>~/.codex/sessions/**/rollout-*.jsonl</c>.
+/// Each file is one session of ordered events. The active model is carried on
+/// <c>turn_context.payload.model</c> and can change between turns; the provider
+/// is session-wide (<c>session_meta.payload.model_provider</c>). Token usage is
+/// reported cumulatively in <c>token_count.payload.info.total_token_usage</c>, so
+/// we attribute the per-event delta to whichever model is active at that point.
+/// Codex has no plan mode, so plan metrics are left unset (surfaced as n/a).
+/// </summary>
+internal sealed class CodexReader : IHarnessReader
+{
+    private const string HarnessName = "codex";
+
+    private readonly string _root;
+
+    public CodexReader(string? root = null) =>
+        _root = root ?? DefaultRoot();
+
+    public string Harness => HarnessName;
+
+    public static string DefaultRoot() =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".codex", "sessions");
+
+    public bool IsAvailable() => Directory.Exists(_root);
+
+    public IReadOnlyList<Session> Read(List<ReadError> errors)
+    {
+        var sessions = new List<Session>();
+
+        foreach (var file in JsonlReader.EnumerateFiles(_root, "rollout-*.jsonl", "codex", errors))
+        {
+            var session = ReadSession(file, errors);
+            if (session is not null)
+            {
+                sessions.Add(session);
+            }
+        }
+
+        return sessions
+            .OrderByDescending(session => session.UpdatedAt ?? session.CreatedAt)
+            .ThenBy(session => session.Id)
+            .ToList();
+    }
+
+    private static Session? ReadSession(string file, List<ReadError> errors)
+    {
+        var state = new SessionState { Id = Path.GetFileNameWithoutExtension(file) };
+
+        JsonlReader.ForEachRecord(file, "codex", errors, record =>
+        {
+            var timestamp = JsonHelpers.FromIso8601(TryGetString(record, "timestamp"));
+            state.Touch(timestamp);
+
+            var topType = TryGetString(record, "type");
+            if (!record.TryGetProperty("payload", out var payload) || payload.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            switch (topType)
+            {
+                case "session_meta":
+                    state.OnSessionMeta(payload);
+                    break;
+                case "turn_context":
+                    state.CurrentModel = TryGetString(payload, "model") ?? state.CurrentModel;
+                    break;
+                case "event_msg":
+                    state.OnEvent(TryGetString(payload, "type"), payload, timestamp);
+                    break;
+            }
+        });
+
+        return state.Build();
+    }
+
+    private static string? TryGetString(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(property, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static long GetLong(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value)
+        && value.ValueKind == JsonValueKind.Number
+        && value.TryGetInt64(out var number)
+            ? number
+            : 0;
+
+    private sealed class SessionState
+    {
+        public required string Id { get; init; }
+        public string? CurrentModel { get; set; }
+
+        private string? _provider;
+        private DateTimeOffset? _created;
+        private DateTimeOffset? _updated;
+        private DateTimeOffset? _metaTimestamp;
+        private int _sequence;
+        private long _lastTotalInput;
+        private long _lastTotalOutput;
+
+        private readonly List<MessageBuilder> _messages = [];
+        private readonly Dictionary<string, long> _inputByModel = [];
+        private readonly Dictionary<string, long> _outputByModel = [];
+
+        private const string UnknownModel = "<unknown>";
+
+        public void Touch(DateTimeOffset? timestamp)
+        {
+            if (timestamp is null)
+            {
+                return;
+            }
+
+            _created = _created is null || timestamp < _created ? timestamp : _created;
+            _updated = _updated is null || timestamp > _updated ? timestamp : _updated;
+        }
+
+        public void OnSessionMeta(JsonElement payload)
+        {
+            if (TryGetString(payload, "id") is { } id)
+            {
+                _metaId = id;
+            }
+
+            _provider = TryGetString(payload, "model_provider");
+            _metaTimestamp = JsonHelpers.FromIso8601(TryGetString(payload, "timestamp"));
+        }
+
+        private string? _metaId;
+
+        public void OnEvent(string? eventType, JsonElement payload, DateTimeOffset? timestamp)
+        {
+            switch (eventType)
+            {
+                case "user_message":
+                    _messages.Add(new MessageBuilder
+                    {
+                        Id = $"{Id}-{_sequence++}",
+                        Role = "user",
+                        CreatedAt = timestamp
+                    });
+                    break;
+                case "agent_message":
+                    _messages.Add(new MessageBuilder
+                    {
+                        Id = $"{Id}-{_sequence++}",
+                        Role = "assistant",
+                        ModelId = CurrentModel,
+                        CreatedAt = timestamp
+                    });
+                    break;
+                case "token_count":
+                    AccumulateTokens(payload);
+                    break;
+                case "patch_apply_end":
+                    RecordEdit(payload, timestamp);
+                    break;
+                case "turn_aborted":
+                    if (TryGetString(payload, "reason") == "interrupted")
+                    {
+                        LastAssistant()?.MarkAborted();
+                    }
+
+                    break;
+            }
+        }
+
+        private void AccumulateTokens(JsonElement payload)
+        {
+            if (!payload.TryGetProperty("info", out var info)
+                || info.ValueKind != JsonValueKind.Object
+                || !info.TryGetProperty("total_token_usage", out var total)
+                || total.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            // total_token_usage is cumulative for the session; attribute the delta
+            // since the previous reading to the model active right now.
+            var totalInput = GetLong(total, "input_tokens");
+            var totalOutput = GetLong(total, "output_tokens");
+            var deltaInput = Math.Max(0, totalInput - _lastTotalInput);
+            var deltaOutput = Math.Max(0, totalOutput - _lastTotalOutput);
+            _lastTotalInput = totalInput;
+            _lastTotalOutput = totalOutput;
+
+            var key = CurrentModel ?? UnknownModel;
+            _inputByModel[key] = _inputByModel.GetValueOrDefault(key) + deltaInput;
+            _outputByModel[key] = _outputByModel.GetValueOrDefault(key) + deltaOutput;
+        }
+
+        private void RecordEdit(JsonElement payload, DateTimeOffset? timestamp)
+        {
+            if (payload.TryGetProperty("success", out var success)
+                && success.ValueKind == JsonValueKind.False)
+            {
+                return;
+            }
+
+            (LastAssistant() ?? AddSyntheticAssistant(timestamp)).AddEdit(timestamp);
+        }
+
+        private MessageBuilder? LastAssistant()
+        {
+            for (var i = _messages.Count - 1; i >= 0; i--)
+            {
+                if (_messages[i].Role == "assistant")
+                {
+                    return _messages[i];
+                }
+            }
+
+            return null;
+        }
+
+        private MessageBuilder AddSyntheticAssistant(DateTimeOffset? timestamp)
+        {
+            var builder = new MessageBuilder
+            {
+                Id = $"{Id}-{_sequence++}",
+                Role = "assistant",
+                ModelId = CurrentModel,
+                CreatedAt = timestamp
+            };
+            _messages.Add(builder);
+            return builder;
+        }
+
+        public Session? Build()
+        {
+            if (_messages.Count == 0)
+            {
+                return null;
+            }
+
+            AttachTokens();
+
+            var session = new Session
+            {
+                Harness = HarnessName,
+                Id = _metaId ?? Id,
+                CreatedAt = _metaTimestamp ?? _created,
+                UpdatedAt = _updated
+            };
+
+            foreach (var builder in _messages)
+            {
+                session.Messages.Add(builder.Build(_provider, _metaId ?? Id));
+            }
+
+            return session;
+        }
+
+        // Attach each model's accumulated session tokens to that model's last
+        // assistant message, so per-session token sums land on the right model.
+        private void AttachTokens()
+        {
+            foreach (var key in _inputByModel.Keys.Union(_outputByModel.Keys))
+            {
+                var model = key == UnknownModel ? null : key;
+                var target = LastAssistantForModel(model);
+                if (target is null)
+                {
+                    continue;
+                }
+
+                target.Tokens = new TokenUsage(
+                    _inputByModel.GetValueOrDefault(key),
+                    _outputByModel.GetValueOrDefault(key));
+            }
+        }
+
+        private MessageBuilder? LastAssistantForModel(string? model)
+        {
+            for (var i = _messages.Count - 1; i >= 0; i--)
+            {
+                if (_messages[i].Role == "assistant" && _messages[i].ModelId == model)
+                {
+                    return _messages[i];
+                }
+            }
+
+            return LastAssistant();
+        }
+    }
+
+    private sealed class MessageBuilder
+    {
+        public required string Id { get; init; }
+        public string? Role { get; init; }
+        public string? ModelId { get; init; }
+        public DateTimeOffset? CreatedAt { get; init; }
+        public TokenUsage? Tokens { get; set; }
+
+        private bool _aborted;
+        private readonly List<DateTimeOffset?> _edits = [];
+
+        public void MarkAborted() => _aborted = true;
+
+        public void AddEdit(DateTimeOffset? timestamp) => _edits.Add(timestamp);
+
+        public Message Build(string? provider, string sessionId)
+        {
+            var message = new Message
+            {
+                Id = Id,
+                SessionId = sessionId,
+                Role = Role,
+                ProviderId = Role == "assistant" ? provider : null,
+                ModelId = ModelId,
+                ErrorName = _aborted ? "MessageAbortedError" : null,
+                CreatedAt = CreatedAt,
+                CompletedAt = CreatedAt,
+                Tokens = Tokens
+            };
+
+            for (var i = 0; i < _edits.Count; i++)
+            {
+                message.Parts.Add(new Part
+                {
+                    Id = $"{Id}-edit-{i}",
+                    MessageId = Id,
+                    Tool = "apply_patch",
+                    ToolStatus = "completed",
+                    StartedAt = _edits[i] ?? CreatedAt
+                });
+            }
+
+            return message;
+        }
+    }
+}
